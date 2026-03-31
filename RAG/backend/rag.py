@@ -1,5 +1,5 @@
 import os
-from langchain_community.document_loaders import TextLoader, PyMuPDFLoader
+from langchain_community.document_loaders import TextLoader, PyMuPDFLoader, Docx2txtLoader, UnstructuredPowerPointLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
@@ -9,10 +9,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-llm = ChatGroq(
-    model="llama-3.1-8b-instant",
-    api_key=os.getenv("GROQ_API_KEY")
-)
+# Removed global llm instance to allow dynamic switching
 
 embeddings = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
@@ -29,10 +26,16 @@ def split_documents(documents):
 def add_documents_to_db(file_path):
     global vectorstore, retriever
     
-    if file_path.endswith('.pdf'):
+    file_ext = os.path.splitext(file_path)[1].lower()
+    
+    if file_ext == '.pdf':
         loader = PyMuPDFLoader(file_path)
+    elif file_ext in ['.docx', '.doc']:
+        loader = Docx2txtLoader(file_path)
+    elif file_ext in ['.pptx', '.ppt']:
+        loader = UnstructuredPowerPointLoader(file_path)
     else:
-        loader = TextLoader(file_path)
+        loader = TextLoader(file_path, encoding='utf-8')
         
     docs = loader.load()
     for doc in docs:
@@ -56,13 +59,17 @@ def clear_db():
     vectorstore = None
     retriever = None
 
-def corrective_rag(query, history_text, retrieved_docs):
+def corrective_rag(query, history_text, retrieved_docs, model_name):
     context = "\n\n".join([doc.page_content for doc in retrieved_docs])
     
-    # 1. Relevance check (YES/NO) - checks if retrieved context can answer query
+    # Instantiate LLM dynamically
+    llm = ChatGroq(model=model_name, temperature=0.7, api_key=os.getenv("GROQ_API_KEY"))
+    
     relevance_prompt = ChatPromptTemplate.from_template(
-        "Does the following context contain information relevant to answering the query? "
-        "Answer strictly 'YES' or 'NO'.\n\nContext: {context}\n\nQuery: {query}"
+        "Context: {context}\n\n"
+        "Question: {query}\n\n"
+        "Does the context above contain information relevant to answering the question? "
+        "Answer strictly 'YES' or 'NO'."
     )
     
     relevance_response = llm.invoke(
@@ -74,10 +81,14 @@ def corrective_rag(query, history_text, retrieved_docs):
         
     # 2. Query rewriting if NO
     rewrite_prompt = ChatPromptTemplate.from_template(
-        "Rewrite the following query to be better optimized for a search engine, using the conversation history for context.\n\n"
+        "You are a search query optimizer. Rewrite the following query to be better for a vector database search, using history for context.\n\n"
+        "STRICT RULES:\n"
+        "1. Output ONLY the search query string.\n"
+        "2. DO NOT answer the question.\n"
+        "3. DO NOT add any conversational text (e.g. 'Here is your query').\n\n"
         "History:\n{history}\n\n"
         "Original Query: {query}\n\n"
-        "Just provide the rewritten query."
+        "Search Query:"
     )
     new_query = llm.invoke(rewrite_prompt.format(history=history_text, query=query)).content.strip()
     
@@ -87,26 +98,36 @@ def corrective_rag(query, history_text, retrieved_docs):
     
     return new_docs, new_context, new_query
 
-def get_answer(query, chat_history):
+def get_answer(query, chat_history, model_name="llama-3.1-8b-instant"):
     global retriever
-    if retriever is None:
-        return "Please upload documents first.", []
-        
+    # Skip RAG for simple greetings
+    greetings = ["hi", "hello", "hey", "greetings", "good morning", "good afternoon", "good evening"]
+    if query.lower().strip().rstrip('?') in greetings:
+        return "Hello! I'm ready to help you with your documents. What would you like to know?", []
+
     history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in chat_history])
         
-    retrieved_docs = retriever.invoke(query)
-    
-    # Corrective RAG
-    final_docs, context, final_query = corrective_rag(query, history_text, retrieved_docs)
+    if retriever is None:
+        # Fallback to general knowledge if no documents are uploaded
+        final_docs = []
+        context = "No documents uploaded. Answer using your internal knowledge."
+        final_query = query
+    else:
+        retrieved_docs = retriever.invoke(query)
+        # Corrective RAG
+        final_docs, context, final_query = corrective_rag(query, history_text, retrieved_docs, model_name)
     
     # Generation
+    llm = ChatGroq(model=model_name, temperature=0.7, api_key=os.getenv("GROQ_API_KEY"))
+    
     prompt = ChatPromptTemplate.from_template(
         """
         You are a helpful assistant.
-
-        Use the conversation history and context to answer.
-
-        If answer not found, say "Not available in documents."
+        
+        Sourcing Rules:
+        1. IF the answer can be found in the provided 'Context', answer using ONLY that context. 
+        2. IF the answer is NOT in the context, use your general AI knowledge, but YOU MUST START your answer with the exact tag: [INTERNAL_KNOWLEDGE]
+        3. Never cite a document source if the information came from your internal knowledge.
 
         Conversation History:
         {history}
@@ -125,7 +146,13 @@ def get_answer(query, chat_history):
         question=final_query
     )
     
-    response = llm.invoke(formatted_prompt)
-    sources = list(set([doc.metadata.get("source") for doc in final_docs]))
+    raw_response = llm.invoke(formatted_prompt).content
     
-    return response.content, sources
+    if "[INTERNAL_KNOWLEDGE]" in raw_response:
+        response = raw_response.replace("[INTERNAL_KNOWLEDGE]", "").strip()
+        sources = ["Internet / General Knowledge"]
+    else:
+        response = raw_response
+        sources = list(set([doc.metadata.get("source") for doc in final_docs]))
+    
+    return response, sources

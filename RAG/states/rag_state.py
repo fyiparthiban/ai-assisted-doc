@@ -3,13 +3,36 @@ import reflex as rx
 from typing import List, Dict
 from RAG.backend.rag import get_answer, add_documents_to_db, clear_db
 
+# Descriptive labels for the UI selection
+MODEL_OPTIONS = [
+    "⚡ Fast (Llama 8B) - For basic chat & quick summaries",
+    "🧠 Smart (Llama 70B) - For deep reasoning & research",
+    "🧬 Advanced (Qwen 32B) - For complex technical tasks"
+]
+
 class ChatState(rx.State):
     question: str = ""
     history: List[Dict[str, str]] = []
     uploaded_files: List[str] = []
+    
+    # Mapping labels to internal model IDs
+    model_mapping: Dict[str, str] = {
+        MODEL_OPTIONS[0]: "llama-3.1-8b-instant",
+        MODEL_OPTIONS[1]: "llama-3.3-70b-versatile",
+        MODEL_OPTIONS[2]: "qwen/qwen3-32b"
+    }
+    selected_model_label: str = MODEL_OPTIONS[0]
+    show_upload_dialog: bool = False
+
+    @rx.var
+    def selected_model(self) -> str:
+        return self.model_mapping.get(self.selected_model_label, "llama-3.1-8b-instant")
 
     def set_question(self, question: str):
         self.question = question
+
+    def toggle_upload_dialog(self):
+        self.show_upload_dialog = not self.show_upload_dialog
 
     async def handle_upload(self, files: List[rx.UploadFile]):
         upload_dir = rx.get_upload_dir()
@@ -28,7 +51,7 @@ class ChatState(rx.State):
             new_files.append(file.filename)
             
         self.uploaded_files = self.uploaded_files + new_files
-        return rx.redirect("/chat")
+        self.show_upload_dialog = True
 
     def ask(self, form_data: dict = None):
         if not self.question:
@@ -43,9 +66,8 @@ class ChatState(rx.State):
         self.history = self.history + [{"role": "assistant", "content": "Thinking..."}]
         yield
 
-        # Get answer
-        # The prompt says: "We modified corrective_rag(query, history). Now LLM sees Past Q/A. Final prompt: History + Context + Question"
-        answer, sources = get_answer(q, self.history[:-2]) # passing without the "Thinking..." and the new user message (wait, user message SHOULD be passed, so `[:-1]`)
+        # Get answer with selected model
+        answer, sources = get_answer(q, self.history[:-2], model_name=self.selected_model)
 
         response = answer
         if sources:

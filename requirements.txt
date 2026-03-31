@@ -18,6 +18,8 @@ unstructured
 pdfminer.six 
 unstructured_pytesseract 
 unstructured_inference
+docx2txt
+python-pptx
 
 langchain-huggingface 
 sentence-transformers
