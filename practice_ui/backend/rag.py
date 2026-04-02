@@ -147,10 +147,17 @@ class RAGBackend:
                 print(f"Successfully connected to RAG backend API on {api_base_url}")
                 return api_base_url
             print(f"Warning: Backend API at {api_base_url} returned status {response.status_code}")
-        except requests.exceptions.RequestException:
-            print(f"Warning: Could not connect to backend API on {api_base_url}")
+        except requests.exceptions.RequestException as e:
+            print(f"Warning: Could not connect to backend API on {api_base_url}: {e}")
 
-        fallback_candidates = ["http://localhost:8001", "http://localhost:8002", "http://localhost:8000"]
+        # Try alternative URLs  
+        fallback_candidates = [
+            "http://127.0.0.1:8003",
+            "http://localhost:8003",
+            "http://localhost:8001",
+            "http://localhost:8002",
+            "http://localhost:8000"
+        ]
         for fallback_url in fallback_candidates:
             if fallback_url == api_base_url:
                 continue
@@ -160,8 +167,8 @@ class RAGBackend:
                     print(f"Successfully connected to RAG backend API on {fallback_url}")
                     return fallback_url
                 print(f"Warning: Backend API at {fallback_url} returned status {response.status_code}")
-            except requests.exceptions.RequestException:
-                print(f"Warning: Could not connect to backend API on {fallback_url}")
+            except requests.exceptions.RequestException as e:
+                print(f"Warning: Could not connect to backend API on {fallback_url}: {e}")
 
         print(f"Warning: Falling back to configured API URL {api_base_url}")
         return api_base_url
