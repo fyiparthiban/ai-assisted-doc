@@ -85,11 +85,21 @@ def load_documents():
 
     for source_dir in search_dirs:
         print(f'Loading documents from {source_dir}...')
+
+        # Load PDFs with error handling for empty files
         try:
-            pdf_loader = DirectoryLoader(str(source_dir), glob='**/*.pdf', loader_cls=PyPDFLoader)
-            documents.extend(pdf_loader.load())
+            pdf_files = list(source_dir.glob('**/*.pdf'))
+            for pdf_file in pdf_files:
+                if pdf_file.stat().st_size == 0:
+                    print(f'Skipping empty PDF file: {pdf_file}')
+                    continue
+                try:
+                    loader = PyPDFLoader(str(pdf_file))
+                    documents.extend(loader.load())
+                except Exception as e:
+                    print(f'Error loading PDF {pdf_file}: {e}')
         except Exception as e:
-            print(f'Error loading PDFs from {source_dir}: {e}')
+            print(f'Error scanning PDFs from {source_dir}: {e}')
 
         try:
             txt_loader = DirectoryLoader(str(source_dir), glob='**/*.txt', loader_cls=TextLoader)
