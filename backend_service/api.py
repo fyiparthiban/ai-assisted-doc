@@ -162,9 +162,12 @@ def root():
 @app.route('/health', methods=['GET'])
 def health_check():
     chroma_path = get_default_chroma_db_dir()
+    from milestone2.rag_pipeline import get_huggingface_token
+    hf_token_present = get_huggingface_token() is not None
     return jsonify({
         'status': 'healthy',
         'groq_api_key_present': bool(os.getenv('GROQ_API_KEY', '').strip()),
+        'huggingface_token_present': hf_token_present,
         'vector_store': vector_store is not None,
         'llm': llm is not None,
         'rag_chain': rag_chain is not None,
@@ -191,7 +194,7 @@ def query_documents():
         return jsonify({
             'error': 'Service Unavailable',
             'message': (
-                'RAG system is not initialized. Ensure GROQ_API_KEY is set in root .env, '
+                'RAG system is not initialized. Ensure GROQ_API_KEY and optionally HUGGINGFACEHUB_API_TOKEN (or HF_TOKEN) are set in root .env, '
                 'the ChromaDB directory exists at milestone1/chroma_db, and restart the backend.'
             )
         }), 503
