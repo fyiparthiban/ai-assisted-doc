@@ -322,5 +322,5 @@ def ensure_rag_initialized():
 if __name__ == '__main__':
     validate_required_envs()
     initialize_rag_system()
-    port = int(os.getenv('BACKEND_PORT', '8003'))
+    port = int(os.getenv('PORT', os.getenv('BACKEND_PORT', '8003')))
     app.run(host='0.0.0.0', port=port)
