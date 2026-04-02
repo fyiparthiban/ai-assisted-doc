@@ -32,7 +32,7 @@ A modern web application for document-based question answering using Retrieval-A
 ### 1. Clone the repository
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/fyiparthiban/ai-assisted-doc.git
 cd practice_ui
 ```
 
